@@ -82,7 +82,7 @@ RUN cd /tmp/build/nginx/${NGINX_VERSION} && \
 
 
 
-##### Building the final image #####
+
 FROM debian:${DEBIAN_VERSION}
 
 # Install dependencies
