@@ -104,9 +104,6 @@ COPY --from=builder /var/run/nginx /var/run/nginx
 RUN ln -sf /dev/stdout /var/log/nginx/access.log && \
     ln -sf /dev/stderr /var/log/nginx/error.log
 
-# Set up config file
-COPY nginx.conf /etc/nginx/nginx.conf
-
 EXPOSE 1935
 EXPOSE 8080
 
