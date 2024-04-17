@@ -12,8 +12,6 @@ DATABASE_USER = os.environ.get("POSTGRES_USER")
 DATABASE_PASSWORD = os.environ.get("POSTGRES_PASSWORD")
 DATABASE_HOST = os.environ.get("POSTGRES_HOST")
 
-print(DATABASE_NAME)
-
 SQLALCHEMY_DATABASE_URL = PostgresDsn.build(
     scheme="postgresql",
     user=DATABASE_USER,

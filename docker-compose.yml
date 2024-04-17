@@ -7,6 +7,8 @@ services:
     ports:
       - 443:443
       - 447:447
+    networks:
+      - local_network
     volumes:
       - hls:/mnt/hls
       - ./conf/rtmp.conf:/etc/nginx/nginx.conf
@@ -17,6 +19,8 @@ services:
       context: server
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - local_network
     volumes:
       - ./server:/server
     container_name: auth_server
@@ -28,3 +32,7 @@ volumes:
       type: none,
       o: bind
       device: ./hls
+
+networks:
+  local_network:
+    driver: bridge

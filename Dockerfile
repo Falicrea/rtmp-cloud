@@ -1,18 +1,14 @@
-ARG DEBIAN_VERSION=stable-slim
+FROM buildpack-deps:bullseye
 
-##### Building stage #####
-FROM debian:${DEBIAN_VERSION} as builder
 LABEL maintainer="Tiafeno Finel <tiafenofnel@gmail.com>"
 
 # Versions of Nginx and nginx-rtmp-module to use
-ENV NGINX_VERSION nginx-1.25.4
+ENV NGINX_VERSION nginx-1.23.2
 ENV NGINX_RTMP_MODULE_VERSION 1.2.2
-ENV FFMPEG_VERSION=7.0
-
 
 # Install dependencies
 RUN apt-get update && \
-	apt-get install -y wget build-essential ca-certificates openssl libssl-dev yasm libpcre3-dev librtmp-dev libtheora-dev libvorbis-dev libvpx-dev libfreetype6-dev libmp3lame-dev libx264-dev libx265-dev && \
+    apt-get install -y ca-certificates openssl libssl-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Download and decompress Nginx
@@ -78,27 +74,6 @@ RUN cd /tmp/build/nginx/${NGINX_VERSION} && \
     make install && \
     mkdir /var/lock/nginx && \
     rm -rf /tmp/build
-
-
-
-
-
-FROM debian:${DEBIAN_VERSION}
-
-# Install dependencies
-RUN apt-get update && \
-	apt-get install -y wget build-essential ca-certificates openssl libssl-dev yasm libpcre3-dev librtmp-dev libtheora-dev libvorbis-dev libvpx-dev libfreetype6-dev libmp3lame-dev libx264-dev libx265-dev && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /mnt/hls && \
-    chmod -R 777 /mnt
-
-# Copy files from build stage to final stage	
-COPY --from=builder /usr/local /usr/local
-COPY --from=builder /etc/nginx /etc/nginx
-COPY --from=builder /var/log/nginx /var/log/nginx
-COPY --from=builder /var/lock /var/lock
-COPY --from=builder /var/run/nginx /var/run/nginx
 
 # Forward logs to Docker
 RUN ln -sf /dev/stdout /var/log/nginx/access.log && \
