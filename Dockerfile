@@ -24,36 +24,6 @@ RUN mkdir -p /tmp/build/nginx-rtmp-module && \
     tar -zxf nginx-rtmp-module-${NGINX_RTMP_MODULE_VERSION}.tar.gz && \
     cd nginx-rtmp-module-${NGINX_RTMP_MODULE_VERSION}
 
-# Download ffmpeg source
-RUN cd /tmp/build && \
-  wget https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz && \
-  tar -zxf ffmpeg-${FFMPEG_VERSION}.tar.gz && \
-  rm ffmpeg-${FFMPEG_VERSION}.tar.gz
-
-RUN apt-get update && apt-get install -y libass-dev
-# Build ffmpeg
-RUN cd /tmp/build/ffmpeg-${FFMPEG_VERSION} && \
-  ./configure \
-	  --enable-version3 \
-	  --enable-gpl \
-	  --enable-small \
-	  --enable-libx264 \
-	  --enable-libx265 \
-	  --enable-libvpx \
-	  --enable-libtheora \
-	  --enable-libvorbis \
-	  --enable-librtmp \
-	  --enable-postproc \
-	  --enable-swresample \
-	  --enable-libfreetype \
-	  --enable-libmp3lame \
-	  --disable-debug \
-	  --disable-doc \
-	  --disable-ffplay \
-	  --extra-libs="-lpthread -lm" && \
-	make -j $(getconf _NPROCESSORS_ONLN) && \
-	make install
-
 # Build and install Nginx
 # The default puts everything under /usr/local/nginx, so it's needed to change
 # it explicitly. Not just for order but to have it in the PATH
