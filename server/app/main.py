@@ -4,7 +4,8 @@ from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Depends, HTTPException
 import logging
 import sys
-from .database import SessionLocal, engine, Streaming
+import os
+from .database import SessionLocal, Streaming
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -29,6 +30,17 @@ async def auth(name: Union[str, None] = None, db: Session = Depends(get_db)):
     stream = db.query(Streaming).filter(Streaming.idStream == name).first()
     if stream is None:
         raise HTTPException(status_code=422, detail="Stream not found")
+    return JSONResponse(
+        status_code=200,
+        content={"success": True}
+    )
+
+@app.get("/end")
+async def auth(name: Union[str, None] = None, db: Session = Depends(get_db)):
+    if name is None:
+        raise HTTPException(status_code=422, detail="Parameter invalid")
+    os.system('chmod -R 775 /mnt')
+    os.system(f'echo "#EXT-X-ENDLIST" >> /mnt/hls/{name}/index.m3u8')
     return JSONResponse(
         status_code=200,
         content={"success": True}

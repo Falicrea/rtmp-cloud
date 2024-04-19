@@ -1,17 +1,17 @@
 services:
   rtmp:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: murderousone/nginx-ffmpeg-rtmp:ubuntu-latest
     restart: unless-stopped
-    ports:
-      - 443:443
-      - 447:447
     networks:
       - local_network
+    stdin_open: true
+    tty: true
+    ports:
+      - 447:447
+      - 1935:1935
     volumes:
-      - hls:/mnt/hls
-      - ./conf/rtmp.conf:/etc/nginx/nginx.conf
+      - mnt:/mnt
+      - ./conf:/usr/local/nginx/conf/
     container_name: rtmp_server
 
   auth:
@@ -22,16 +22,18 @@ services:
     networks:
       - local_network
     volumes:
+      - mnt:/mnt
       - ./server:/server
     container_name: auth_server
 
 volumes:
-  hls:
+  mnt:
     driver: local
     driver_opts:
       type: none,
       o: bind
-      device: ./hls
+      device: ./mnt
+  nginxconfig:
 
 networks:
   local_network:
