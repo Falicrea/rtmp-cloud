@@ -30,9 +30,9 @@ def add_engine(engine_name: str, db_user: str, db_pass: str, db_host: str, db_na
 
 # Environnement de dev
 add_engine('bardv',
-           'POSTGRES_USER_BARD_DEV',
-           'POSTGRES_PASSWORD_BARD_DEV',
-           'POSTGRES_HOST_BARD_DEV',
+           'POSTGRES_USER',
+           'POSTGRES_PASSWORD',
+           'POSTGRES_HOST',
            'POSTGRES_DB_BARD_DEV'
            )
 
