@@ -1,6 +1,8 @@
 services:
   rtmp:
-    image: murderousone/nginx-ffmpeg-rtmp:ubuntu-latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     networks:
       - local_network
@@ -9,9 +11,18 @@ services:
     ports:
       - 447:447
       - 1935:1935
+    depends_on:
+      - auth
+    healthcheck:
+      test: curl --fail http://auth_server:3030/ || exit 1
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
     volumes:
       - mnt:/mnt
       - ./conf:/usr/local/nginx/conf/
+      - ./cgi-bin:/cgi-bin
     container_name: rtmp_server
 
   auth:

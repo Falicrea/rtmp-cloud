@@ -5,7 +5,8 @@ from fastapi import FastAPI, Depends, HTTPException
 import logging
 import sys
 import os
-from .database import get_db, dbs, Streaming
+from .database import get_db, dbs
+from .models import Streaming
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -21,6 +22,14 @@ async def bind_session(name: Union[str, None]) -> Union[Session, None]:
     if engine_key not in dbs().keys():
         return None
     return get_db(engine_key)
+
+
+@app.get("/")
+async def index():
+    return JSONResponse(
+        status_code=200,
+        content={"success": True}
+    )
 
 
 @app.get("/auth")
