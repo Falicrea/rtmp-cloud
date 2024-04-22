@@ -14,7 +14,7 @@ engines_dict = {}
 
 
 def add_engine(engine_name: str,  db_name: str, db_user: str = 'POSTGRES_USER', db_pass: str = 'POSTGRES_PASSWORD',
-               db_host: str = 'POSTGRES_HOST'):
+               db_host: str = 'POSTGRES_HOST') -> None:
     DATABASE_USER = os.environ.get(db_user)
     DATABASE_PASSWORD = os.environ.get(db_pass)
     DATABASE_HOST = os.environ.get(db_host)

@@ -5,6 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException
 import logging
 import sys
 import os
+from urllib.request import urlopen
 from .database import get_db, dbs
 from .models import Streaming
 
@@ -62,6 +63,7 @@ async def ended(name: Union[str, None] = None, db: Union[Annotated[Session, None
     stream.recorded = True
     # Get m3u8 and flv file url
     stream.m3u8Url = f"/hls/{name}/index.m3u8"
+    stream.flvsUrl = None
 
     for (root, _, files) in os.walk("/mnt/recordings"):
         for file in files:
@@ -70,6 +72,10 @@ async def ended(name: Union[str, None] = None, db: Union[Annotated[Session, None
                 break
 
     db.commit()
+    
+    if stream.flvsUrl is not None:
+        with urlopen(f"http://rtmp_server:447/convert.pl?flv={stream.flvsUrl}") as response:
+            pass
 
     return JSONResponse(
         status_code=200,
