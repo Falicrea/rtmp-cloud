@@ -53,7 +53,7 @@ async def ended(name: Union[str, None] = None, db: Union[Annotated[Session, None
     if name is None or db is None:
         raise HTTPException(status_code=422, detail="Parameter invalid")
 
-    os.system('chmod -R 775 /mnt')
+    os.system('chmod -R 777 /mnt')
     if os.path.isfile(f"/mnt/hls/{name}/index.m3u8"):
         os.system(f'echo "#EXT-X-ENDLIST" >> /mnt/hls/{name}/index.m3u8')
 

@@ -14,6 +14,4 @@ EXPOSE 447
 EXPOSE 443
 EXPOSE 80
 
-USER www-data
-
 CMD ["/bin/bash"]
