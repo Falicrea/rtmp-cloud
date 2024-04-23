@@ -54,7 +54,8 @@ async def ended(name: Union[str, None] = None, db: Union[Annotated[Session, None
         raise HTTPException(status_code=422, detail="Parameter invalid")
 
     os.system('chmod -R 775 /mnt')
-    os.system(f'echo "#EXT-X-ENDLIST" >> /mnt/hls/{name}/index.m3u8')
+    if os.path.isfile(f"/mnt/hls/{name}/index.m3u8"):
+        os.system(f'echo "#EXT-X-ENDLIST" >> /mnt/hls/{name}/index.m3u8')
 
     stream = (db.query(Streaming)
               .filter(Streaming.idStream == name)
