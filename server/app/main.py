@@ -73,10 +73,12 @@ async def ended(name: Union[str, None] = None, db: Union[Annotated[Session, None
                 break
 
     db.commit()
-    
-    if stream.flvsUrl is not None:
-        with urlopen(f"http://rtmp_server:447/convert.pl?flv={stream.flvsUrl}") as response:
-            pass
+
+    # Activer si le serveur possede plus de memoire alloue
+    #
+    # if stream.flvsUrl is not None:
+    #     with urlopen(f"http://rtmp_server:447/convert.pl?flv={stream.flvsUrl}") as response:
+    #         pass
 
     return JSONResponse(
         status_code=200,
