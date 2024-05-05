@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
-      - local_network
+      - rtmp_net
     stdin_open: true
     tty: true
     ports:
@@ -14,7 +14,7 @@ services:
     depends_on:
       - auth
     healthcheck:
-      test: curl --fail http://auth_server:3030/ || exit 1
+      test: curl --fail http://auth_rtmp:3030/ || exit 1
       interval: 40s
       timeout: 30s
       retries: 3
@@ -23,7 +23,7 @@ services:
       - mnt:/mnt
       - ./conf:/usr/local/nginx/conf/
       - ./cgi-bin:/cgi-bin
-    container_name: rtmp_server
+    container_name: rtmp
 
   auth:
     build:
@@ -31,11 +31,11 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
-      - local_network
+      - rtmp_net
     volumes:
       - mnt:/mnt
-      - ./server:/server
-    container_name: auth_server
+      - ./server:/code
+    container_name: auth_rtmp
 
 volumes:
   mnt:
@@ -44,8 +44,7 @@ volumes:
       type: none,
       o: bind
       device: ./mnt
-  nginxconfig:
 
 networks:
-  local_network:
+  rtmp_net:
     driver: bridge

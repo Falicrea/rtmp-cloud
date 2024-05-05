@@ -9,6 +9,11 @@ RUN /etc/init.d/fcgiwrap start -f \
     && chown www-data:www-data -R /var/run/fcgiwrap.socket \
     && chmod 777 /var/run/fcgiwrap.socket
 
+RUN usermod --non-unique --uid 1000 www-data \
+    && groupmod --non-unique --gid 1000 www-data
+
+USER www-data
+    
 EXPOSE 1935
 EXPOSE 447
 EXPOSE 443
