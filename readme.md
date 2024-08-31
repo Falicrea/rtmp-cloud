@@ -1,4 +1,2 @@
 ### Deploiement
-```bash
-    make install
-    ```
+Install nginx and Nginx RTMP 

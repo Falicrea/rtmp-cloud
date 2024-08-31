@@ -1,23 +1,21 @@
+import os
 from typing import Union
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import PostgresDsn
-from dotenv import load_dotenv
 from yaml import safe_load, YAMLError
 
-load_dotenv()
-
-CONFIG_FILE = "./configs/defined.yaml"
 default_connection = ''
 
 # Function to create a new engine and add it to the engines dictionary
 engines_dict = {}
 
-
 def add_engine(engine_name: str, db_name: Union[str, None], db_user: str = '', db_pass: str = '',
-               db_host: str = '') -> None:
+               db_host: str = '', schema: str = 'postgresql') -> bool:
+
+
     """
     The function `add_engine` creates a database engine for a specified engine name with optional
     database connection details.
@@ -40,15 +38,18 @@ def add_engine(engine_name: str, db_name: Union[str, None], db_user: str = '', d
     the database server where the PostgreSQL database is running. It is a string parameter that
     specifies the hostname or IP address of the server
     :type db_host: str
+    :type schema: str
     """
-    engine = create_engine(PostgresDsn.build(
-        scheme="postgresql",
-        user=db_user,
-        password=db_pass,
-        host=db_host,
-        path=f"/{db_name or ''}",
-    ), pool_timeout=1800)
-    engines_dict[engine_name] = engine
+    if schema == 'postgresql':
+        engine = create_engine(PostgresDsn.build(scheme="postgresql", user=db_user, password=db_pass, host=db_host, path=f"/{db_name or ''}",), pool_timeout=1800)
+    else:
+        engine = create_engine(f"{schema}+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}", echo='debug')
+
+    if engine is not None:
+        engines_dict[engine_name] = engine
+        return True
+
+    return False
 
 
 
@@ -56,25 +57,25 @@ def add_engine(engine_name: str, db_name: Union[str, None], db_user: str = '', d
 # It then loads the content of the YAML file using the `safe_load` function from the `yaml` module.
 def load_engine():
     global default_connection
-    with open(CONFIG_FILE, "r") as stream:
+    with open(os.getenv('CONFIG_FILE'), "r") as stream:
         try:
             config: dict = safe_load(stream=stream)
             databases = config.get('database')
             for connection in databases.keys():
                 schema: dict = databases.get(connection)
-                host = schema['dbhost']
-                dbname = schema['dbname']
-                username = schema['dbuser']
-                password = schema['dbpass']
+                host = schema.get('dbhost')
+                dbname = schema.get('dbname')
+                username = schema.get('dbuser')
+                password = schema.get('dbpass')
 
                 add_engine(
-                    engine_name=connection,
+                    engine_name=connection, # Connection database reference
                     db_name=dbname,
                     db_user=username,
                     db_pass=password,
                     db_host=host)
 
-                if schema.get('default') and schema['default'] == 1:
+                if schema.get('default', False) and schema['default'] == 1:
                     default_connection = connection
 
                 print(f"Database engine load: {connection}")

@@ -1,6 +1,5 @@
 *.mp4
 ./venv
-.env
 .idea
 *.pyc
 *.ts
