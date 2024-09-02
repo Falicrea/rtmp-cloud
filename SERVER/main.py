@@ -2,16 +2,17 @@ import logging
 import os
 import sys
 from typing import Annotated, Union
-
-from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from package.database import dbs, get_db, load_engine
-from package.models import StreamingModel
-
+from dotenv import load_dotenv
 load_dotenv()
+
+from .package.database import dbs, get_db, load_engine
+from .package.models import StreamingModel
+from .package.queue import run_queue
+from .package.utils import hls_directory
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -22,8 +23,7 @@ logger.addHandler(stream_handler)
 app = FastAPI()
 
 load_engine()
-
-_hls_directory = os.getenv('MEDIA_HLS', '/mnt/hls')
+run_queue()
 
 async def bind_session(name: Union[str, None]) -> Union[Session, None]:
     """
@@ -110,8 +110,8 @@ async def ended(name: Union[str, None] = None, db: Union[Annotated[Session, None
     :return: The function `ended` is returning a JSON response with a status code of 200 and content
     indicating success. The content of the response is a dictionary with a key "success" set to True.
     """
-    if os.path.isfile(f"{_hls_directory}/{name}/index.m3u8"):
-        with open(f"{_hls_directory}/{name}/index.m3u8",  "a") as f:
+    if os.path.isfile(f"{hls_directory}/{name}/index.m3u8"):
+        with open(f"{hls_directory}/{name}/index.m3u8",  "a") as f:
             f.writelines('\n#EXT-X-ENDLIST')
             f.close()
 
