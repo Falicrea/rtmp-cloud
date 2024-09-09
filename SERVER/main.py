@@ -1,6 +1,4 @@
-import logging
 import os
-import sys
 from typing import Annotated, Union
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -9,16 +7,11 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 load_dotenv()
 
-from .package.database import dbs, get_db, load_engine
-from .package.models import StreamingModel
-from .package.queue import run_queue
-from .package.utils import hls_directory
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-stream_handler = logging.StreamHandler(sys.stdout)
-stream_handler.setFormatter(logging.Formatter("%(asctime)s  [%(levelname)s] %(name)s: %(message)s"))
-logger.addHandler(stream_handler)
+from package.database import dbs, get_db, load_engine
+from package.models import StreamingModel
+from package.queue import run_queue
+from package.utils import hls_directory
+from package.logger import logger
 
 app = FastAPI()
 
