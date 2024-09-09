@@ -6,6 +6,8 @@ from datetime import datetime
 
 from . import utils, logger
 
+child_process = None
+
 def remove_old_stream():
     folders = [f for f in os.listdir(utils.hls_directory) if os.path.isdir(os.path.join(utils.hls_directory, f))]
     while True:
@@ -28,5 +30,6 @@ def remove_old_stream():
 
 
 def run_queue():
-    rm = threading.Thread(target=remove_old_stream(), args=())
-    rm.start()
+    global child_process
+    child_process = threading.Thread(target=remove_old_stream, args=())
+    child_process.start()
