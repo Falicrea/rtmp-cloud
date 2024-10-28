@@ -108,7 +108,7 @@ async def ended(name: Union[str, None] = None, db: Union[Annotated[Session, None
             f.writelines('\n#EXT-X-ENDLIST')
             f.close()
 
-    if name is None or db.is_active:
+    if name is None or db.is_active is not True:
         raise HTTPException(status_code=422, detail="Parameter invalid")
 
     stream = (db.query(StreamingModel)
