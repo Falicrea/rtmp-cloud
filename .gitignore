@@ -1,1 +1,8 @@
 *.mp4
+.idea
+*.pyc
+*.ts
+*.m3u8
+*.flv
+defined.yaml
+venv

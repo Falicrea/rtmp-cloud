@@ -1,0 +1,16 @@
+database:
+  database1:
+    host: localhost:5432
+    name: db-dev
+    username: postgres
+    password: password
+    schema: postgresql
+    default: 1
+    
+  database2:
+    host: localhost:5432
+    name: db-prod
+    username: postgres
+    password: password
+    schema: postgresql
+    default: 0

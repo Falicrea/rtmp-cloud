@@ -1,0 +1,7 @@
+fastapi>=0.109.1,<0.69.0
+uvicorn>=0.15.0,<0.16.0
+sqlalchemy>=2.0.29
+psycopg2-binary>=2.9.9
+python-dotenv>=1.0.1
+fastapi-utilities>=0.2.0
+pyyaml==6.0.1
