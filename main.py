@@ -30,9 +30,8 @@ async def bind_session(name: Union[str, None]) -> Union[Session]:
     :type name: Union[str, None]
     
     :return: The function `bind_session` is returning either a `Session` object or `None`, depending on
-    the input `name`. If the `engine_key` extracted from the `name` is not found in the keys of the
-    `dbs()` dictionary, it returns `None`. Otherwise, it returns the result of calling
-    `get_db(engine_key)`, which presumably returns a `Session` object.
+    the input `name`. If the `id` extracted from the `name` is not found in the keys of the
+    `CONNECTION_DATABASE` dictionary. The function will raise an HTTPException with a status code of 400
     """
     if name is None or '_' not in name:
         raise HTTPException(status_code=400, detail="Name invalid")

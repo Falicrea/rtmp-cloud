@@ -50,11 +50,10 @@ def load_engine():
 
 def retrieve_connection(id: str) -> Session:
     """
-    The function `get_db` returns a database session based on the specified engine name.
+    The function returns a database session based on the specified engine name.
     
-    :param id: The `engine_name` parameter is a string that represents the name of the database
-    engine to be used for establishing a connection. It is used to retrieve the corresponding engine
-    from the `engines_dict` dictionary
+    :param id: Represents the id of the database engine to be used for establishing a connection.
+    It is used to retrieve the corresponding engine from the `CONNECTION_DATABASE` dictionary
     :type id: str
     :return: A Session object is being returned.
     """
