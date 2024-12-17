@@ -70,7 +70,14 @@ async def auth(name: Union[str, None] = None, session: Session = Depends(bind_se
 
 
 @app.get("/end")
-async def ended(name: Union[str, None] = None, session: Session = Depends(bind_session)):
+async def ended(name: Union[str, None] = None, flashver: Union[None, str] = None, session: Session = Depends(bind_session)):
+    # Seul le requete principal peut interagir avec cette route
+    if re.search(r"-(relay$)", flashver) is not None:
+        return JSONResponse(
+            status_code=203,
+            content={"success": False}
+        )
+
     if name is None:
         logger.warning("Error authentication parameter. name: {name}")
         raise HTTPException(status_code=422, detail="Parameter name not defined")
