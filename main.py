@@ -56,11 +56,11 @@ async def auth(name: Union[str, None] = None, session: Session = Depends(bind_se
         raise HTTPException(status_code=422, detail="Parameter invalid")
 
     try:
-        session.flush()
         streamModel = (session.query(Stream).filter(Stream.idStream == name).first())
     except:
         raise HTTPException(status_code=428, detail="Session gone away")
     else:
+        session.close()
         if streamModel is None:
             logger.warning("Error stream record not found in database. "
                            f'name: {name}')
@@ -76,7 +76,6 @@ async def ended(name: Union[str, None] = None, session: Session = Depends(bind_s
         raise HTTPException(status_code=422, detail="Parameter name not defined")
 
     try:
-        session.flush()
         streamModel = session.query(Stream).filter(Stream.idStream == name).first()
     except:
         raise HTTPException(status_code=428, detail="Session gone away")
@@ -95,6 +94,7 @@ async def ended(name: Union[str, None] = None, session: Session = Depends(bind_s
             session.commit()
         else:
             raise HTTPException(status_code=404, detail="Stream not found")
+        session.close()
 
     return JSONResponse(
         status_code=200,
@@ -103,4 +103,4 @@ async def ended(name: Union[str, None] = None, session: Session = Depends(bind_s
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", port=3000, log_level="info")
+    uvicorn.run("main:app", port=3030, log_level="info")
