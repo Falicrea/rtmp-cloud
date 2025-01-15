@@ -4,7 +4,6 @@ database:
     name: db-dev
     username: postgres
     password: password
-    schema: postgresql
     default: 1
     
   database2:
@@ -12,5 +11,4 @@ database:
     name: db-prod
     username: postgres
     password: password
-    schema: postgresql
     default: 0

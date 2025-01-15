@@ -9,6 +9,7 @@ class Stream(model.Base):
     idStream = Column(String, unique=True, index=True)
     live = Column(Boolean)
     m3u8Url = Column(String, default=None)
-    recorded = Column(Boolean, default=False)
+    mpdUrl = Column(String, default=None)
+    flvUrl = Column(String, default=None)
     createdAt = Column(Date)
     updatedAt = Column(Date)

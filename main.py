@@ -1,33 +1,30 @@
-import os
-import re
+from dotenv import load_dotenv
+load_dotenv('.env')
+
+import re, os
 from typing import Union
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from dotenv import load_dotenv
-
+from sqlalchemy.orm import Session, sessionmaker
 from package.models.stream import Stream
 
-load_dotenv()
-
-from package.database import retrieve_connection, load_engine, CONNECTION_DATABASE
-from package.utils import hls_directory
+from package.intranet import Intranet
+from package.utils import hls_directory, mpd_directory
 from package.logger import logger
+
 
 app = FastAPI()
 
-load_engine()
+async def bind_session(name: str) -> sessionmaker[Session]:
 
-
-async def bind_session(name: Union[str, None]) -> Union[Session]:
     """
     This asynchronous Python function binds a session based on the provided name by extracting the
     engine key and retrieving the corresponding database.
     
-    :param name: The `name` parameter is a string or None
-    :type name: Union[str, None]
+    :param name: The `name` parameter is a string
+    :type name: str
     
     :return: The function `bind_session` is returning either a `Session` object or `None`, depending on
     the input `name`. If the `id` extracted from the `name` is not found in the keys of the
@@ -38,10 +35,12 @@ async def bind_session(name: Union[str, None]) -> Union[Session]:
     match = re.match(r"(\w+)_", name)
     if not match:
         raise HTTPException(status_code=400, detail="Name invalid")
-    id = match.group(1)
-    if id not in CONNECTION_DATABASE.keys():
-        raise HTTPException(status_code=400, detail="Database invalid")
-    return retrieve_connection(id)
+    try :
+        intranet = Intranet(match.group(1))
+        return intranet.get_session()
+    except ValueError as e:
+        logger.error(f"Error: {e}")
+        raise HTTPException(status_code=400, detail=e.__str__())
 
 
 @app.get("/")
@@ -50,64 +49,73 @@ async def index():
 
 
 @app.get("/auth")
-async def auth(name: Union[str, None] = None, session: Session = Depends(bind_session)):
-    if name is None:
-        logger.warning("Error authentication parameter. name: {name}")
-        raise HTTPException(status_code=422, detail="Parameter invalid")
-
-    try:
-        streamModel = (session.query(Stream).filter(Stream.idStream == name).first())
-    except:
-        raise HTTPException(status_code=428, detail="Session gone away")
-    else:
-        session.close()
-        if streamModel is None:
-            logger.warning("Error stream record not found in database. "
-                           f'name: {name}')
-            raise HTTPException(status_code=404, detail="Stream not found")
+async def auth(name: str, session: sessionmaker[Session] = Depends(bind_session)):
+    with session.begin() as db:
+        try:
+            stream_model = db.query(Stream).filter(Stream.idStream == name).first()
+        except:
+            raise HTTPException(status_code=428, detail="Session gone away")
+        else:
+            if stream_model is None:
+                db.close()
+                logger.warning(f'Error stream record not found in database. name: {name}')
+                raise HTTPException(status_code=404, detail="Stream not found")
+            else:
+                db.close()
 
     return JSONResponse(status_code=200, content={"success": True})
 
 
 @app.get("/end")
-async def ended(name: Union[str, None] = None, flashver: Union[None, str] = None, session: Session = Depends(bind_session)):
-    # Seul le requete principal peut interagir avec cette route
+async def ended(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
+    # Les relays ne sont pas autorisés
+    flashver = flashver if flashver is not None else ''
     if re.search(r"-(relay$)", flashver) is not None:
-        return JSONResponse(
-            status_code=203,
-            content={"success": False}
-        )
+        return JSONResponse(status_code=203, content={"success": False})
 
-    if name is None:
-        logger.warning("Error authentication parameter. name: {name}")
-        raise HTTPException(status_code=422, detail="Parameter name not defined")
-
-    try:
-        streamModel = session.query(Stream).filter(Stream.idStream == name).first()
-    except:
-        raise HTTPException(status_code=428, detail="Session gone away")
-    else:
-        if streamModel is not None:
+    with session.begin() as db:
+        try:
+            stream_model = db.query(Stream).filter(Stream.idStream == name).first()
+            if not stream_model:
+                raise HTTPException(status_code=404, detail="Stream not found")
+            
+            if stream_model.mpdUrl is not None or stream_model.m3u8Url is not None:
+                db.close()
+                return JSONResponse(status_code=200, content={"success": True, "message": "Already recorded"})
+                
+        except Exception as exc:
+            db.close()
+            raise HTTPException(status_code=428, detail="Stream not found or Session gone away") from exc
+        else:
             if os.path.isfile(f"{hls_directory}/{name}/index.m3u8"):
-                with open(f"{hls_directory}/{name}/index.m3u8", "a") as f:
+                with open(f"{hls_directory}/{name}/index.m3u8", "a", encoding="utf-8") as f:
                     f.writelines('\n#EXT-X-ENDLIST')
                     f.close()
                 # Get m3u8 file url
-                streamModel.m3u8Url = f"/hls/{name}/index.m3u8"
+                stream_model.m3u8Url = f"/hls/{name}/index.m3u8"
 
-            streamModel.live = False
-            streamModel.recorded = True
+            if os.path.isfile(f"{mpd_directory}/{name}/index.mpd"):
+                # Get mpd file url
+                stream_model.mpdUrl = f"/dash/{name}/index.mpd"
+            else:
+                stream_model.mpdUrl = None
+                logger.info(f"MPD file not found for {name} at {mpd_directory}/{name}/index.mpd")
 
-            session.commit()
-        else:
-            raise HTTPException(status_code=404, detail="Stream not found")
-        session.close()
+            stream_model.live = False
+            db.commit()
+            db.close()
 
-    return JSONResponse(
-        status_code=200,
-        content={"success": True}
-    )
-
+    return JSONResponse(status_code=201, content={"success": True})
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", port=3030, log_level="info")
+    # Check configuration file
+    if not os.getenv('CONFIG_FILE') or not os.path.isfile(os.getenv('CONFIG_FILE')):
+        raise ValueError("Configuration file not found")
+
+    # Check if HLS directory exists
+    if os.getenv('MEDIA_HLS') and not os.path.isdir(hls_directory):
+        raise ValueError("HLS folder doesn't exist")
+
+
+    # Run the FastAPI application using Uvicorn
+    uvicorn.run("main:app", port=3030, reload=True, log_level="info", ws="websockets", ws_max_queue=20, ws_ping_interval=10)

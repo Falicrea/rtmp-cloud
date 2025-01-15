@@ -6,3 +6,4 @@
 *.flv
 defined.yaml
 venv
+.env
