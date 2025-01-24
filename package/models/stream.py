@@ -10,6 +10,6 @@ class Stream(model.Base):
     live = Column(Boolean)
     m3u8Url = Column(String, default=None)
     mpdUrl = Column(String, default=None)
-    flvUrl = Column(String, default=None)
+    flvsUrl = Column(String, default=None)
     createdAt = Column(Date)
     updatedAt = Column(Date)
