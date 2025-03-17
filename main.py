@@ -88,9 +88,6 @@ async def ended(name: str, flashver: Union[None, str] = None, session: sessionma
             raise HTTPException(status_code=428, detail="Stream not found or Session gone away") from exc
         else:
             if os.path.isfile(f"{hls_directory}/{name}/index.m3u8"):
-                with open(f"{hls_directory}/{name}/index.m3u8", "a", encoding="utf-8") as f:
-                    f.writelines('\n#EXT-X-ENDLIST')
-                    f.close()
                 # Get m3u8 file url
                 stream_model.m3u8Url = f"/hls/{name}/index.m3u8"
 
