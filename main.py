@@ -1,21 +1,44 @@
 from dotenv import load_dotenv
+
 load_dotenv('.env')
 
-import re, os
+import os
+import json
+import re
 from typing import Union
+import hashlib
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, Request, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session, sessionmaker
-from package.models.stream import Stream
 
 from package.intranet import Intranet
-from package.utils import hls_directory, mpd_directory
 from package.logger import logger
+from package.models.stream import Stream
+from package.utils import hls_directory, mpd_directory
 
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# MediaMTX request model
+class StreamRequest(BaseModel):
+    user: str
+    password: str
+    token: str
+    ip: str
+    action: str # "publish|read|playback|api|metrics|pprof"
+    path: str
+    protocol: str # "rtsp|rtmp|hls|webrtc|srt"
+    id: str
+    query: str
 
 async def bind_session(name: str) -> sessionmaker[Session]:
 
@@ -42,14 +65,24 @@ async def bind_session(name: str) -> sessionmaker[Session]:
         logger.error(f"Error: {e}")
         raise HTTPException(status_code=400, detail=e.__str__())
 
+def stream_key_func(request: Request) -> str:
+    """
+    Génère une clé personnalisée pour le rate limiter.
+    - Utilise une clé spécifique dans le request ou un hash du contenu du request.
+    """
+    body = request._body
+    raw_key = body.decode() if body else json.dumps({"path": get_remote_address(request)})
+    data = json.loads(raw_key)
+    return hashlib.sha256(data['path'].encode()).hexdigest()
+
 
 @app.get("/")
 async def index():
     return JSONResponse(status_code=200, content={"success": True})
 
 
-@app.get("/auth")
-async def auth(name: str, session: sessionmaker[Session] = Depends(bind_session)):
+@app.get("/nginx-rtmp/auth")
+async def nginxAuth(name: str, session: sessionmaker[Session] = Depends(bind_session)):
     with session.begin() as db:
         try:
             stream_model = db.query(Stream).filter(Stream.idStream == name).first()
@@ -65,9 +98,8 @@ async def auth(name: str, session: sessionmaker[Session] = Depends(bind_session)
 
     return JSONResponse(status_code=200, content={"success": True})
 
-
-@app.get("/end")
-async def ended(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
+@app.get("/nginx-rtmp/end")
+async def nginxEnded(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
     # Les relays ne sont pas autorisés
     flashver = flashver if flashver is not None else ''
     if re.search(r"-(relay$)", flashver) is not None:
@@ -103,6 +135,24 @@ async def ended(name: str, flashver: Union[None, str] = None, session: sessionma
             db.close()
 
     return JSONResponse(status_code=201, content={"success": True})
+
+@app.post("/mediamtx/auth")
+@limiter.limit(limit_value="25/minute", key_func=stream_key_func) # second|minute|hour|day|month|year
+async def mediamtxAuth(request: Request, item: StreamRequest):
+    session = await bind_session(item.path)
+    with session.begin() as db:
+        try:
+            stream_model = db.query(Stream).filter(Stream.idStream == item.path).first()
+            if not stream_model:
+                raise HTTPException(status_code=500, detail="Stream not found")
+            else:
+                db.close()
+                return JSONResponse(status_code=200, content={"password": "", "user": ""})
+        except Exception as exc:
+            db.close()
+            logger.error(f'Error stream authentication exception: {exc}')
+            
+    return JSONResponse(status_code=500, content="Unauthorized")
 
 if __name__ == "__main__":
     # Check configuration file
