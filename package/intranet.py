@@ -22,7 +22,7 @@ class Intranet:
         The function returns a database session based on the specified engine name.
         :return: A Session object is being returned.
         """
-        return sessionmaker(bind=self._connection, autocommit=False, autoflush=False)
+        return sessionmaker(bind=self._connection, autoflush=False)
 
     def _setup(self):
         # This block of code is reading a YAML file named "defined.yaml" located in the "./configs" directory.
@@ -43,7 +43,7 @@ class Intranet:
 
                 schema: dict = databases.get(db_key_name)
                 postgres_dsn_url = f"postgresql://{schema.get('username')}:{schema.get('password')}@{schema.get('host')}/{schema.get('name')}"
-                self._connection = create_engine(postgres_dsn_url, pool_timeout=1800)
+                self._connection = create_engine(postgres_dsn_url, pool_timeout=30) #  Wait up to 30 seconds for a connection
                 break
 
             if self._connection is None:
