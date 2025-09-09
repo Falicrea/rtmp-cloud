@@ -25,8 +25,6 @@ class Intranet:
         return sessionmaker(bind=self._connection, autoflush=False)
 
     def _setup(self):
-        # This block of code is reading a YAML file named "defined.yaml" located in the "./configs" directory.
-        # It then loads the content of the YAML file using the `safe_load` function from the `yaml` module.
         try:
             databases: dict = Intranet.retrieve_databases()
             for db_key_name in databases.keys():
@@ -51,6 +49,8 @@ class Intranet:
         :return: A list of strings representing the names of databases.
         """
         try:
+            # This block of code is reading a YAML file named "defined.yaml" located in the "./configs" directory.
+            # It then loads the content of the YAML file using the `safe_load` function from the `yaml` module.
             with open(os.getenv('CONFIG_FILE'), "r") as file:
                 try:
                     config: dict = safe_load(stream=file)
