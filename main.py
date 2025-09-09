@@ -111,6 +111,7 @@ async def ngx_ended(name: str, flashver: Union[None, str] = None, session: sessi
 @app.post("/mtx/connect")
 @limiter.limit(limit_value="30/minute", key_func=stream_key_func)
 async def mtx_onready(request: Request, item: StreamRequest):
+    with_generate_thumbnail = request.query_params.get('with_thumbnail')
     session = await bind_session(item.path)
     with session.begin() as db:
         try:
@@ -119,7 +120,7 @@ async def mtx_onready(request: Request, item: StreamRequest):
                 raise HTTPException(status_code=500, detail="Stream not found")
 
             # Generate a thumbnail for the stream
-            if process_list.get(stream_model.idStream) is None:
+            if process_list.get(stream_model.idStream) is None and with_generate_thumbnail is not None:
                 thumbnail_path = os.path.join(WORK_DIR, 'thumbnails', stream_model.idStream, f"thumb_%03d.jpg")
                 os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
                 ffmpeg_command = [
