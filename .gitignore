@@ -4,6 +4,7 @@
 *.ts
 *.m3u8
 *.flv
+.fleet
 defined.yaml
 venv
 .env

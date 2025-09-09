@@ -82,8 +82,8 @@ def stream_key_func(request: Request) -> str:
 async def index():
     return JSONResponse(status_code=200, content={"success": True})
 
-@app.get("/nginx-rtmp/auth")
-async def ngxAuth(name: str, session: sessionmaker[Session] = Depends(bind_session)):
+@app.get("/ngx/auth")
+async def ngx_auth(name: str, session: sessionmaker[Session] = Depends(bind_session)):
     with session.begin() as db:
         try:
             stream_model = db.query(Stream).filter(Stream.idStream == name).first()
@@ -98,54 +98,53 @@ async def ngxAuth(name: str, session: sessionmaker[Session] = Depends(bind_sessi
 
     return JSONResponse(status_code=200, content={"success": True})
 
-@app.get("/nginx-rtmp/end")
-async def ngxEnded(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
+@app.get("/ngx/end")
+async def ngx_ended(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
     # Les relays ne sont pas autorisés
-    flashver = flashver if flashver is not None else None
+    flashver = flashver if flashver is not None else ''
     if flashver is None or re.search(r"-(relay$)", flashver) is not None:
         return JSONResponse(status_code=203, content={"success": False})
 
-    return disconnectStream(session=session, stream_key=name)
+    return disconnect_stream(session=session, stream_key=name)
 
 # Discution avec Claude: https://claude.ai/share/77609d1f-bdcd-428f-a0c3-3ee9cb0b4a43
 @app.post("/mtx/connect")
-@limiter.limit(limit_value="25/minute", key_func=stream_key_func)
-async def mtxOnReady(request: Request, item: StreamRequest):
+@limiter.limit(limit_value="30/minute", key_func=stream_key_func)
+async def mtx_onready(request: Request, item: StreamRequest):
     session = await bind_session(item.path)
     with session.begin() as db:
         try:
             stream_model = db.query(Stream).filter(Stream.idStream == item.path).first()
             if not stream_model:
                 raise HTTPException(status_code=500, detail="Stream not found")
-            else:
-                # Generate a thumbnail for the stream
-                if process_list.get(stream_model.idStream) is None:
-                    thumbnail_path = os.path.join(WORK_DIR, 'thumbnails', stream_model.idStream, f"thumb_%03d.jpg")
-                    os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
-                    ffmpeg_command = [
-                        'ffmpeg',
-                        '-i', f'srt://{SRT["host"]}:{SRT["port"]}?streamid=read:{stream_model.idStream}',
-                        '-vf',
-                        'fps=1/30', # Capture one frame every 30 seconds
-                        thumbnail_path  # Output file path
-                    ]
-                    # Schedule to run after 60 seconds
-                    timer = threading.Timer(60.0, run_command, args=(ffmpeg_command, stream_model.idStream))
-                    timer.start()
 
-                    process_list[stream_model.idStream] = timer
+            # Generate a thumbnail for the stream
+            if process_list.get(stream_model.idStream) is None:
+                thumbnail_path = os.path.join(WORK_DIR, 'thumbnails', stream_model.idStream, f"thumb_%03d.jpg")
+                os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
+                ffmpeg_command = [
+                    'ffmpeg', '-i', f'srt://{SRT["host"]}:{SRT["port"]}?streamid=read:{stream_model.idStream}',
+                    '-vf', 'fps=1/30',  # Capture one frame every 30 seconds
+                    thumbnail_path
+                ]
+                # Schedule to run after 60 seconds
+                timer = threading.Timer(60.0, run_command, args=(ffmpeg_command, stream_model.idStream))
+                timer.start()
 
-                stream_model.live = True
-                db.commit()
-                db.close()
-                return JSONResponse(status_code=200, content={"password": "", "user": ""})
+                process_list[stream_model.idStream] = timer
+
+            stream_model.live = True
+            db.commit()
+            db.close()
+            return JSONResponse(status_code=200, content={"password": "", "user": ""})
+
         except Exception as exc:
             logger.error(f'Error stream authentication exception: {exc}')
             
     return JSONResponse(status_code=500, content="Unauthorized")
 
 @app.get("/mtx/disconnect")
-async def mtxOnDisconnect(request: Request):
+async def mtx_ondisconnect(request: Request):
     name = request.query_params.get('name')
     session = await bind_session(name)
     # Stop thumbnail generation
@@ -156,9 +155,9 @@ async def mtxOnDisconnect(request: Request):
         elif isinstance(process, threading.Timer):
             process.cancel()
         del process_list[name]
-    return disconnectStream(session=session, stream_key=name)
+    return disconnect_stream(session=session, stream_key=name)
 
-def run_command(command: list, id: str):
+def run_command(command: list, id: str) -> None:
     """
     Exécute une commande ffmpeg en utilisant subprocess.Popen et gère les erreurs.
     
@@ -176,8 +175,7 @@ def run_command(command: list, id: str):
     except Exception as e:
         logger.error(f"Exception during FFmpeg execution: {e}")
 
-
-def disconnectStream(session: sessionmaker[Session], stream_key: str):
+def disconnect_stream(session: sessionmaker[Session], stream_key: str):
     with session.begin() as db:
         try:
             stream_model = db.query(Stream).filter(Stream.idStream == stream_key).first()

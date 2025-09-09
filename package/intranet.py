@@ -28,15 +28,7 @@ class Intranet:
         # This block of code is reading a YAML file named "defined.yaml" located in the "./configs" directory.
         # It then loads the content of the YAML file using the `safe_load` function from the `yaml` module.
         try:
-            with open(os.getenv('CONFIG_FILE'), "r") as file:
-                try:
-                    config: dict = safe_load(stream=file)
-                    databases = config.get('database')
-                except YAMLError as er:
-                    print(er.__str__())
-                finally:
-                    file.close()
-
+            databases: dict = Intranet.retrieve_databases()
             for db_key_name in databases.keys():
                 if db_key_name != self._db_name:
                     continue
@@ -51,3 +43,26 @@ class Intranet:
 
         except FileNotFoundError:
             raise ValueError("Configuration file not found")
+
+    @staticmethod
+    def retrieve_databases() -> dict:
+        """
+        The function retrieves a list of database names from a configuration file.
+        :return: A list of strings representing the names of databases.
+        """
+        try:
+            with open(os.getenv('CONFIG_FILE'), "r") as file:
+                try:
+                    config: dict = safe_load(stream=file)
+                    databases = config.get('database')
+                except YAMLError as er:
+                    print(er.__str__())
+                finally:
+                    file.close()
+
+            dbs = databases
+
+        except FileNotFoundError:
+            raise ValueError("Configuration file not found")
+
+        return dbs
