@@ -1,8 +1,10 @@
+import faker
 from httpx import Response
 
 from main import app
 from fastapi.testclient import TestClient
 from sqlalchemy import func
+from faker import Faker
 
 from package.intranet import Intranet
 from package.models.stream import Stream
@@ -47,3 +49,19 @@ def test_read_ngxEnd():
     stream = get_random_stream()
     response: Response = client.get(f'/ngx/end?name={stream.idStream}')
     assert response.status_code == 201
+
+def test_read_mtxConnect(faker):
+    stream = get_random_stream()
+    data = {
+        "user": "user",
+        "password": faker.name(),
+        "action": "publish",
+        "path": stream.idStream,
+        "protocol": "webrtc",
+        "token": "test",
+        "id": "test",
+        "ip": "test",
+        "query": "test"
+    }
+    response: Response = client.post(f'/mtx/connect', json=data, headers={"content-type": "application/json"})
+    assert response.status_code == 200

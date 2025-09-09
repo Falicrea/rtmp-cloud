@@ -1,6 +1,7 @@
 pydantic
 pytest>=8.4.2
 httpx>=0.21.1
+Faker>=37.6.0
 fastapi>=0.109.1
 uvicorn[standard]>=0.16.0
 sqlalchemy>=2.0.29
