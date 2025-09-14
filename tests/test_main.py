@@ -65,3 +65,14 @@ def test_read_mtxConnect(faker):
     }
     response: Response = client.post(f'/mtx/connect', json=data, headers={"content-type": "application/json"})
     assert response.status_code == 200
+
+    data.update({"path": "invalid_stream"})
+    response: Response = client.post(f'/mtx/connect', json=data)
+    assert response.status_code != 200
+
+def test_command_ffmpeg():
+    # Verifier si la commande ffmpeg est accessible sur la machine
+    import shutil
+    ffmpeg_path = shutil.which("ffmpeg")
+    assert ffmpeg_path is not None
+    assert shutil.which("ffmpeg") == ffmpeg_path
