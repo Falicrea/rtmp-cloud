@@ -1,10 +1,11 @@
-import faker
+from dotenv import load_dotenv
 from httpx import Response
+
+load_dotenv('../.env')
 
 from main import app
 from fastapi.testclient import TestClient
 from sqlalchemy import func
-from faker import Faker
 
 from package.intranet import Intranet
 from package.models.stream import Stream

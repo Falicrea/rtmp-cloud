@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from yaml import safe_load
 
-load_dotenv('.env')
+load_dotenv('../.env')
 
 def test_configs():
     # Config file exist

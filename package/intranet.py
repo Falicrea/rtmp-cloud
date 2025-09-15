@@ -49,7 +49,7 @@ class Intranet:
         :return: A list of strings representing the names of databases.
         """
         try:
-            # This block of code is reading a YAML file named "defined.yaml" located in the "./configs" directory.
+            # This block of code is reading a YAML file named "configs.yaml" located in the "./configs" directory.
             # It then loads the content of the YAML file using the `safe_load` function from the `yaml` module.
             with open(os.getenv('CONFIG_FILE'), "r") as file:
                 try:
