@@ -14,6 +14,7 @@ import uvicorn
 from fastapi import Depends, Request, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from typing import Optional
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -35,13 +36,13 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 class StreamRequest(BaseModel):
     user: str
     password: str
-    token: str
+    token: Optional[str] = None
     ip: str
     action: str # "publish|read|playback|api|metrics|pprof"
     path: str
     protocol: str # "rtsp|rtmp|hls|webrtc|srt"
-    id: str
-    query: str
+    id: Optional[str] = None
+    query: Optional[str] = None
 
 async def bind_session(name: str) -> sessionmaker[Session]:
 
