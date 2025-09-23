@@ -5,3 +5,7 @@ SRT = {
   "host": os.getenv('SRT_SERVER_HOST', 'localhost'),
   "port": int(os.getenv('SRT_SERVER_PORT', '8890'))
 }
+CODECS = {
+    "video": os.getenv('VIDEO_CODEC', 'libx264'),
+    "audio": os.getenv('AUDIO_CODEC', 'aac')
+}

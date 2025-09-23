@@ -23,10 +23,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from package.intranet import Intranet
 from package.logger import logger
 from package.models.stream import Stream
-from package.utils import WORK_DIR, SRT
+from package.utils import WORK_DIR, SRT, CODECS
 
 limiter = Limiter(key_func=get_remote_address)
 process_list = dict()
+restream_list = dict() # List des rediffusions en cours
     
 app = FastAPI()
 app.state.limiter = limiter
@@ -43,6 +44,10 @@ class StreamRequest(BaseModel):
     protocol: str # "rtsp|rtmp|hls|webrtc|srt"
     id: Optional[str] = None
     query: Optional[str] = None
+
+class RestreamRequest(BaseModel):
+    rtmp: str
+    name: str
 
 async def bind_session(name: str) -> sessionmaker[Session]:
 
@@ -149,15 +154,45 @@ async def mtx_onready(request: Request, item: StreamRequest):
 async def mtx_ondisconnect(request: Request):
     name = request.query_params.get('name')
     session = await bind_session(name)
-    # Stop thumbnail generation
-    if name in process_list:
-        process = process_list[name]
+
+    # Arrêt des processus liés au stream
+    for proc_list in (process_list, restream_list):
+        process = proc_list.pop(name, None)
         if isinstance(process, subprocess.Popen):
             process.terminate()
         elif isinstance(process, threading.Timer):
             process.cancel()
-        del process_list[name]
+
     return disconnect_stream(session=session, stream_key=name)
+@app.post("/mtx/restream")
+async def mtx_onrestream(request: RestreamRequest):
+    """
+    Restream a stream to social networks. with ffmpeg
+    """
+    rtmp = request.rtmp
+    name = request.name
+    # validate if rtmp or rtmps is valid url
+    if not re.match(r"^rtmps?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(:[0-9]+)?(/.*)?$", rtmp):
+        raise HTTPException(status_code=400, detail="RTMP URL invalid")
+
+    if rtmp in restream_list:
+        raise HTTPException(status_code=400, detail="RTMP URL already in use")
+
+    video_codec = CODECS["video"]
+    audio_codec = CODECS["audio"]
+    ffmpeg_command = [
+        'ffmpeg', '-i', f'srt://{SRT["host"]}:{SRT["port"]}?streamid=read:{name}',
+        '-c:v', video_codec, '-preset', 'veryfast', '-tune', 'zerolatency', '-profile:v', 'main',
+        '-pix_fmt', 'yuv420p', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
+        '-c:a', audio_codec, '-b:a', '128k', '-ar', '44100', '-r', '30', '-g', '60',
+        '-f', 'flv', rtmp
+    ]
+    print("Commande FFmpeg:", ' '.join(ffmpeg_command))
+    timer = threading.Timer(10, restream, args=(ffmpeg_command, name))
+    timer.start()
+    restream_list[rtmp] = timer
+
+    return JSONResponse(status_code=200, content={"success": True, "message": "Restream started"})
 
 def run_command(command: list, id: str) -> None:
     """
@@ -166,6 +201,7 @@ def run_command(command: list, id: str) -> None:
     :param command: La commande ffmpeg à exécuter, sous forme de liste de chaînes de caractères.
     :type command: list
     """
+    process = None
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
         output, errors = process.communicate()
@@ -176,6 +212,11 @@ def run_command(command: list, id: str) -> None:
             logger.info(f"FFmpeg output: {output.decode()}")
     except Exception as e:
         logger.error(f"Exception during FFmpeg execution: {e}")
+    finally:
+        if process and process.poll() is None:
+            process.terminate()
+        if id in process_list:
+            process_list.pop(id)
 
 def disconnect_stream(session: sessionmaker[Session], stream_key: str):
     with session.begin() as db:
@@ -195,6 +236,24 @@ def disconnect_stream(session: sessionmaker[Session], stream_key: str):
             db.close()
 
     return JSONResponse(status_code=201, content={"success": True})
+
+def restream(command: list, name: str):
+    process = None
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,  shell=False)
+        output, errors = process.communicate()
+        restream_list[name] = process
+        if process.returncode != 0:
+            logger.error(f"Restream error: {errors.decode()}")
+        else:
+            logger.info(f"Restream output: {output.decode()}")
+    except Exception as e:
+        logger.error(f"Exception during FFmpeg restream execution: {e}")
+    finally:
+        if process and process.poll() is None:
+            process.terminate()
+        if name in restream_list:
+            restream_list.pop(name)
 
 
 if __name__ == "__main__":
