@@ -20,9 +20,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session, sessionmaker
 
-from package.intranet import Intranet
+from package import Intranet
 from package.logger import logger
-from package.models.stream import Stream
+from package.models import Stream
 from package.utils import WORK_DIR, SRT, CODECS
 
 limiter = Limiter(key_func=get_remote_address)
@@ -219,28 +219,27 @@ def run_command(command: list, id: str) -> None:
             process_list.pop(id)
 
 def disconnect_stream(session: sessionmaker[Session], stream_key: str):
-    with session.begin() as db:
-        try:
+    response = {"status_code": 200, "content": {"success": True}}
+    try:
+        with session.begin() as db:
             stream_model = db.query(Stream).filter(Stream.idStream == stream_key).first()
             if not stream_model:
-                raise HTTPException(status_code=404, detail="Stream not found")
-            if stream_model.mpdUrl is not None or stream_model.m3u8Url is not None:
-                return JSONResponse(status_code=200, content={"success": True, "message": "Already recorded"})
-        except Exception as exc:
-            raise HTTPException(status_code=428, detail="Stream not found or Session gone away") from exc
-        else:
-            # Get m3u8 file url
-            stream_model.m3u8Url = f"/hls/{stream_key}/index.m3u8"
-            stream_model.live = False
-            db.commit()
-            db.close()
+                response = {"status_code": 404, "content": {"success": False, "message": "Stream not found"}}
+            if stream_model.mpdUrl is None and stream_model.m3u8Url is None:
+                stream_model.m3u8Url = f"/hls/{stream_key}/index.m3u8"
+                stream_model.live = False
+                db.commit()
+                db.close()
+    except Exception as exc:
+        logger.error(f'Error stream disconnection exception: {exc}')
+        response = {"status_code": 500, "content": {"success": False, "message": "Internal server error"}}
 
-    return JSONResponse(status_code=201, content={"success": True})
+    return JSONResponse(**response)
 
 def restream(command: list, name: str):
     process = None
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,  shell=False)
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
         output, errors = process.communicate()
         restream_list[name] = process
         if process.returncode != 0:
