@@ -164,6 +164,7 @@ async def mtx_ondisconnect(request: Request):
             process.cancel()
 
     return disconnect_stream(session=session, stream_key=name)
+
 @app.post("/mtx/restream")
 async def mtx_onrestream(request: RestreamRequest):
     """
