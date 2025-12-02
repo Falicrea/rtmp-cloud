@@ -1,8 +1,8 @@
 from sqlalchemy import Column, Boolean, String, Integer, Date
-from . import model
+from . import Base
 
 
-class Stream(model.Base):
+class Stream(Base):
     __tablename__ = "Streaming"
 
     id = Column(Integer, primary_key=True)

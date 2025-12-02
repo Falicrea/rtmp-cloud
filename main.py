@@ -1,21 +1,53 @@
+import threading
 from dotenv import load_dotenv
+
 load_dotenv('.env')
 
-import re, os
+import os
+import json
+import re
 from typing import Union
+import hashlib
+import subprocess
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, Request, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session, sessionmaker
-from package.models.stream import Stream
 
-from package.intranet import Intranet
-from package.utils import hls_directory, mpd_directory
+from package import Intranet
 from package.logger import logger
+from package.models import Stream
+from package.utils import WORK_DIR, SRT, CODECS
 
-
+limiter = Limiter(key_func=get_remote_address)
+process_list = dict()
+restream_list = dict() # List des rediffusions en cours
+    
 app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# MediaMTX request model
+class StreamRequest(BaseModel):
+    user: str
+    password: str
+    token: Optional[str] = None
+    ip: str
+    action: str # "publish|read|playback|api|metrics|pprof"
+    path: str
+    protocol: str # "rtsp|rtmp|hls|webrtc|srt"
+    id: Optional[str] = None
+    query: Optional[str] = None
+
+class RestreamRequest(BaseModel):
+    rtmp: str
+    name: str
 
 async def bind_session(name: str) -> sessionmaker[Session]:
 
@@ -42,14 +74,22 @@ async def bind_session(name: str) -> sessionmaker[Session]:
         logger.error(f"Error: {e}")
         raise HTTPException(status_code=400, detail=e.__str__())
 
+def stream_key_func(request: Request) -> str:
+    """
+    Génère une clé personnalisée pour le rate limiter.
+    - Utilise une clé spécifique dans le request ou un hash du contenu du request.
+    """
+    body = request._body
+    raw_key = body.decode() if body else json.dumps({"path": get_remote_address(request)})
+    data = json.loads(raw_key)
+    return hashlib.sha256(data['path'].encode()).hexdigest()
 
 @app.get("/")
 async def index():
     return JSONResponse(status_code=200, content={"success": True})
 
-
-@app.get("/auth")
-async def auth(name: str, session: sessionmaker[Session] = Depends(bind_session)):
+@app.get("/ngx/auth")
+async def ngx_auth(name: str, session: sessionmaker[Session] = Depends(bind_session)):
     with session.begin() as db:
         try:
             stream_model = db.query(Stream).filter(Stream.idStream == name).first()
@@ -57,7 +97,6 @@ async def auth(name: str, session: sessionmaker[Session] = Depends(bind_session)
             raise HTTPException(status_code=428, detail="Session gone away")
         else:
             if stream_model is None:
-                db.close()
                 logger.warning(f'Error stream record not found in database. name: {name}')
                 raise HTTPException(status_code=404, detail="Stream not found")
             else:
@@ -65,54 +104,162 @@ async def auth(name: str, session: sessionmaker[Session] = Depends(bind_session)
 
     return JSONResponse(status_code=200, content={"success": True})
 
-
-@app.get("/end")
-async def ended(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
+@app.get("/ngx/end")
+async def ngx_ended(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
     # Les relays ne sont pas autorisés
     flashver = flashver if flashver is not None else ''
-    if re.search(r"-(relay$)", flashver) is not None:
+    if flashver is None or re.search(r"-(relay$)", flashver) is not None:
         return JSONResponse(status_code=203, content={"success": False})
 
+    return disconnect_stream(session=session, stream_key=name)
+
+# Discution avec Claude: https://claude.ai/share/77609d1f-bdcd-428f-a0c3-3ee9cb0b4a43
+@app.post("/mtx/connect")
+@limiter.limit(limit_value="30/minute", key_func=stream_key_func)
+async def mtx_onready(request: Request, item: StreamRequest):
+    with_generate_thumbnail = request.query_params.get('with_thumbnail')
+    session = await bind_session(item.path)
     with session.begin() as db:
         try:
-            stream_model = db.query(Stream).filter(Stream.idStream == name).first()
+            stream_model = db.query(Stream).filter(Stream.idStream == item.path).first()
             if not stream_model:
-                raise HTTPException(status_code=404, detail="Stream not found")
-            
-            if stream_model.mpdUrl is not None or stream_model.m3u8Url is not None:
-                db.close()
-                return JSONResponse(status_code=200, content={"success": True, "message": "Already recorded"})
-                
-        except Exception as exc:
-            db.close()
-            raise HTTPException(status_code=428, detail="Stream not found or Session gone away") from exc
-        else:
-            if os.path.isfile(f"{hls_directory}/{name}/index.m3u8"):
-                # Get m3u8 file url
-                stream_model.m3u8Url = f"/hls/{name}/index.m3u8"
+                raise HTTPException(status_code=500, detail="Stream not found")
 
-            if os.path.isfile(f"{mpd_directory}/{name}/index.mpd"):
-                # Get mpd file url
-                stream_model.mpdUrl = f"/dash/{name}/index.mpd"
-            else:
-                stream_model.mpdUrl = None
-                logger.info(f"MPD file not found for {name} at {mpd_directory}/{name}/index.mpd")
+            # Generate a thumbnail for the stream
+            if process_list.get(stream_model.idStream) is None and with_generate_thumbnail is not None:
+                thumbnail_path = os.path.join(WORK_DIR, 'thumbnails', stream_model.idStream, f"thumb_%03d.jpg")
+                os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
+                ffmpeg_command = [
+                    'ffmpeg', '-i', f'srt://{SRT["host"]}:{SRT["port"]}?streamid=read:{stream_model.idStream}',
+                    '-vf', 'fps=1/30',  # Capture one frame every 30 seconds
+                    thumbnail_path
+                ]
+                # Schedule to run after 60 seconds
+                timer = threading.Timer(60.0, run_command, args=(ffmpeg_command, stream_model.idStream))
+                timer.start()
 
-            stream_model.live = False
+                process_list[stream_model.idStream] = timer
+
+            stream_model.live = True
             db.commit()
             db.close()
+            return JSONResponse(status_code=200, content={"password": "", "user": ""})
 
-    return JSONResponse(status_code=201, content={"success": True})
+        except Exception as exc:
+            logger.error(f'Error stream authentication exception: {exc}')
+            
+    return JSONResponse(status_code=500, content="Unauthorized")
+
+@app.get("/mtx/disconnect")
+async def mtx_ondisconnect(request: Request):
+    name = request.query_params.get('name')
+    session = await bind_session(name)
+
+    # Arrêt des processus liés au stream
+    for proc_list in (process_list, restream_list):
+        process = proc_list.pop(name, None)
+        if isinstance(process, subprocess.Popen):
+            process.terminate()
+        elif isinstance(process, threading.Timer):
+            process.cancel()
+
+    return disconnect_stream(session=session, stream_key=name)
+
+@app.post("/mtx/restream")
+async def mtx_onrestream(request: RestreamRequest):
+    """
+    Restream a stream to social networks. with ffmpeg
+    """
+    rtmp = request.rtmp
+    name = request.name
+    # validate if rtmp or rtmps is valid url
+    if not re.match(r"^rtmps?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(:[0-9]+)?(/.*)?$", rtmp):
+        raise HTTPException(status_code=400, detail="RTMP URL invalid")
+
+    if rtmp in restream_list:
+        raise HTTPException(status_code=400, detail="RTMP URL already in use")
+
+    video_codec = CODECS["video"]
+    audio_codec = CODECS["audio"]
+    ffmpeg_command = [
+        'ffmpeg', '-i', f'srt://{SRT["host"]}:{SRT["port"]}?streamid=read:{name}',
+        '-c:v', video_codec, '-preset', 'veryfast', '-tune', 'zerolatency', '-profile:v', 'main',
+        '-pix_fmt', 'yuv420p', '-b:v', '2500k', '-maxrate', '2500k', '-bufsize', '5000k',
+        '-c:a', audio_codec, '-b:a', '128k', '-ar', '44100', '-r', '30', '-g', '60',
+        '-f', 'flv', rtmp
+    ]
+    print("Commande FFmpeg:", ' '.join(ffmpeg_command))
+    timer = threading.Timer(10, restream, args=(ffmpeg_command, name))
+    timer.start()
+    restream_list[rtmp] = timer
+
+    return JSONResponse(status_code=200, content={"success": True, "message": "Restream started"})
+
+def run_command(command: list, id: str) -> None:
+    """
+    Exécute une commande ffmpeg en utilisant subprocess.Popen et gère les erreurs.
+    
+    :param command: La commande ffmpeg à exécuter, sous forme de liste de chaînes de caractères.
+    :type command: list
+    """
+    process = None
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+        output, errors = process.communicate()
+        process_list[id] = process
+        if process.returncode != 0:
+            logger.error(f"FFmpeg error: {errors.decode()}")
+        else:
+            logger.info(f"FFmpeg output: {output.decode()}")
+    except Exception as e:
+        logger.error(f"Exception during FFmpeg execution: {e}")
+    finally:
+        if process and process.poll() is None:
+            process.terminate()
+        if id in process_list:
+            process_list.pop(id)
+
+def disconnect_stream(session: sessionmaker[Session], stream_key: str):
+    response = {"status_code": 200, "content": {"success": True}}
+    try:
+        with session.begin() as db:
+            stream_model = db.query(Stream).filter(Stream.idStream == stream_key).first()
+            if not stream_model:
+                response = {"status_code": 404, "content": {"success": False, "message": "Stream not found"}}
+            if stream_model.mpdUrl is None and stream_model.m3u8Url is None:
+                stream_model.m3u8Url = f"/hls/{stream_key}/index.m3u8"
+                stream_model.live = False
+                db.commit()
+                db.close()
+    except Exception as exc:
+        logger.error(f'Error stream disconnection exception: {exc}')
+        response = {"status_code": 500, "content": {"success": False, "message": "Internal server error"}}
+
+    return JSONResponse(**response)
+
+def restream(command: list, name: str):
+    process = None
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+        output, errors = process.communicate()
+        restream_list[name] = process
+        if process.returncode != 0:
+            logger.error(f"Restream error: {errors.decode()}")
+        else:
+            logger.info(f"Restream output: {output.decode()}")
+    except Exception as e:
+        logger.error(f"Exception during FFmpeg restream execution: {e}")
+    finally:
+        if process and process.poll() is None:
+            process.terminate()
+        if name in restream_list:
+            restream_list.pop(name)
+
 
 if __name__ == "__main__":
     # Check configuration file
     if not os.getenv('CONFIG_FILE') or not os.path.isfile(os.getenv('CONFIG_FILE')):
         raise ValueError("Configuration file not found")
-
-    # Check if HLS directory exists
-    if os.getenv('MEDIA_HLS') and not os.path.isdir(hls_directory):
-        raise ValueError("HLS folder doesn't exist")
-
 
     # Run the FastAPI application using Uvicorn
     uvicorn.run("main:app", port=3030, reload=True, log_level="info", ws="websockets", ws_max_queue=20, ws_ping_interval=10)
