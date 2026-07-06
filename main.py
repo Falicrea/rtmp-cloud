@@ -82,7 +82,7 @@ def stream_key_func(request: Request) -> str:
     body = request._body
     raw_key = body.decode() if body else json.dumps({"path": get_remote_address(request)})
     data = json.loads(raw_key)
-    return hashlib.sha256(data['path'].encode()).hexdigest()
+    return hashlib.sha256(data.get('path', get_remote_address(request)).encode()).hexdigest()
 
 @app.get("/")
 async def index():
@@ -93,7 +93,7 @@ async def ngx_auth(name: str, session: sessionmaker[Session] = Depends(bind_sess
     with session.begin() as db:
         try:
             stream_model = db.query(Stream).filter(Stream.idStream == name).first()
-        except:
+        except Exception:
             raise HTTPException(status_code=428, detail="Session gone away")
         else:
             if stream_model is None:
@@ -108,7 +108,7 @@ async def ngx_auth(name: str, session: sessionmaker[Session] = Depends(bind_sess
 async def ngx_ended(name: str, flashver: Union[None, str] = None, session: sessionmaker[Session] = Depends(bind_session)):
     # Les relays ne sont pas autorisés
     flashver = flashver if flashver is not None else ''
-    if flashver is None or re.search(r"-(relay$)", flashver) is not None:
+    if re.search(r"-(relay$)", flashver) is not None:
         return JSONResponse(status_code=203, content={"success": False})
 
     return disconnect_stream(session=session, stream_key=name)
@@ -173,11 +173,11 @@ async def mtx_onrestream(request: RestreamRequest):
     rtmp = request.rtmp
     name = request.name
     # validate if rtmp or rtmps is valid url
-    if not re.match(r"^rtmps?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}(:[0-9]+)?(/.*)?$", rtmp):
+    if not re.match(r"^rtmps?://[a-zA-Z0-9\-.]+\.[a-zA-Z]{2,}(:[0-9]+)?(/.*)?$", rtmp):
         raise HTTPException(status_code=400, detail="RTMP URL invalid")
 
-    if rtmp in restream_list:
-        raise HTTPException(status_code=400, detail="RTMP URL already in use")
+    if name in restream_list:
+        raise HTTPException(status_code=400, detail="Restream already running for this stream")
 
     video_codec = CODECS["video"]
     audio_codec = CODECS["audio"]
@@ -191,22 +191,23 @@ async def mtx_onrestream(request: RestreamRequest):
     print("Commande FFmpeg:", ' '.join(ffmpeg_command))
     timer = threading.Timer(10, restream, args=(ffmpeg_command, name))
     timer.start()
-    restream_list[rtmp] = timer
+    restream_list[name] = timer
 
     return JSONResponse(status_code=200, content={"success": True, "message": "Restream started"})
 
-def run_command(command: list, id: str) -> None:
+def run_command(command: list, process_id: str) -> None:
     """
     Exécute une commande ffmpeg en utilisant subprocess.Popen et gère les erreurs.
     
+    :param process_id:
     :param command: La commande ffmpeg à exécuter, sous forme de liste de chaînes de caractères.
     :type command: list
     """
     process = None
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+        process_list[process_id] = process
         output, errors = process.communicate()
-        process_list[id] = process
         if process.returncode != 0:
             logger.error(f"FFmpeg error: {errors.decode()}")
         else:
@@ -216,8 +217,8 @@ def run_command(command: list, id: str) -> None:
     finally:
         if process and process.poll() is None:
             process.terminate()
-        if id in process_list:
-            process_list.pop(id)
+        if process_id in process_list:
+            process_list.pop(process_id)
 
 def disconnect_stream(session: sessionmaker[Session], stream_key: str):
     response = {"status_code": 200, "content": {"success": True}}
@@ -226,7 +227,7 @@ def disconnect_stream(session: sessionmaker[Session], stream_key: str):
             stream_model = db.query(Stream).filter(Stream.idStream == stream_key).first()
             if not stream_model:
                 response = {"status_code": 404, "content": {"success": False, "message": "Stream not found"}}
-            if stream_model.mpdUrl is None and stream_model.m3u8Url is None:
+            elif stream_model.mpdUrl is None and stream_model.m3u8Url is None:
                 stream_model.m3u8Url = f"/hls/{stream_key}/index.m3u8"
                 stream_model.live = False
                 db.commit()
@@ -241,8 +242,8 @@ def restream(command: list, name: str):
     process = None
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-        output, errors = process.communicate()
         restream_list[name] = process
+        output, errors = process.communicate()
         if process.returncode != 0:
             logger.error(f"Restream error: {errors.decode()}")
         else:
