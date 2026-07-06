@@ -19,6 +19,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
 
 from package import Intranet
 from package.logger import logger
@@ -79,10 +80,16 @@ def stream_key_func(request: Request) -> str:
     Génère une clé personnalisée pour le rate limiter.
     - Utilise une clé spécifique dans le request ou un hash du contenu du request.
     """
-    body = request._body
-    raw_key = body.decode() if body else json.dumps({"path": get_remote_address(request)})
-    data = json.loads(raw_key)
-    return hashlib.sha256(data.get('path', get_remote_address(request)).encode()).hexdigest()
+    key_source = get_remote_address(request)
+    body = getattr(request, "_body", None)
+    if body:
+        try:
+            data = json.loads(body.decode())
+            if isinstance(data, dict) and data.get("path"):
+                key_source = str(data["path"])
+        except (ValueError, UnicodeDecodeError):
+            pass
+    return hashlib.sha256(key_source.encode()).hexdigest()
 
 @app.get("/")
 async def index():
@@ -93,14 +100,12 @@ async def ngx_auth(name: str, session: sessionmaker[Session] = Depends(bind_sess
     with session.begin() as db:
         try:
             stream_model = db.query(Stream).filter(Stream.idStream == name).first()
-        except Exception:
+        except SQLAlchemyError:
             raise HTTPException(status_code=428, detail="Session gone away")
         else:
             if stream_model is None:
                 logger.warning(f'Error stream record not found in database. name: {name}')
                 raise HTTPException(status_code=404, detail="Stream not found")
-            else:
-                db.close()
 
     return JSONResponse(status_code=200, content={"success": True})
 
@@ -176,8 +181,10 @@ async def mtx_onrestream(request: RestreamRequest):
     if not re.match(r"^rtmps?://[a-zA-Z0-9\-.]+\.[a-zA-Z]{2,}(:[0-9]+)?(/.*)?$", rtmp):
         raise HTTPException(status_code=400, detail="RTMP URL invalid")
 
+    # Le suivi des processus se fait par nom de stream (cohérent avec
+    # /mtx/disconnect et le thread restream), donc un seul restream par stream.
     if name in restream_list:
-        raise HTTPException(status_code=400, detail="Restream already running for this stream")
+        raise HTTPException(status_code=400, detail="Stream already being restreamed")
 
     video_codec = CODECS["video"]
     audio_codec = CODECS["audio"]
@@ -188,7 +195,7 @@ async def mtx_onrestream(request: RestreamRequest):
         '-c:a', audio_codec, '-b:a', '128k', '-ar', '44100', '-r', '30', '-g', '60',
         '-f', 'flv', rtmp
     ]
-    print("Commande FFmpeg:", ' '.join(ffmpeg_command))
+    logger.info(f"Commande FFmpeg: {' '.join(ffmpeg_command)}")
     timer = threading.Timer(10, restream, args=(ffmpeg_command, name))
     timer.start()
     restream_list[name] = timer
@@ -206,7 +213,9 @@ def run_command(command: list, process_id: str) -> None:
     process = None
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-        process_list[process_id] = process
+        # Enregistrer le process AVANT communicate() (bloquant), sinon
+        # /mtx/disconnect ne peut pas le terminer pendant le stream.
+        process_list[id] = process
         output, errors = process.communicate()
         if process.returncode != 0:
             logger.error(f"FFmpeg error: {errors.decode()}")
@@ -217,8 +226,8 @@ def run_command(command: list, process_id: str) -> None:
     finally:
         if process and process.poll() is None:
             process.terminate()
-        if process_id in process_list:
-            process_list.pop(process_id)
+        if process_list.get(id) is process:
+            process_list.pop(id, None)
 
 def disconnect_stream(session: sessionmaker[Session], stream_key: str):
     response = {"status_code": 200, "content": {"success": True}}
@@ -226,12 +235,11 @@ def disconnect_stream(session: sessionmaker[Session], stream_key: str):
         with session.begin() as db:
             stream_model = db.query(Stream).filter(Stream.idStream == stream_key).first()
             if not stream_model:
-                response = {"status_code": 404, "content": {"success": False, "message": "Stream not found"}}
-            elif stream_model.mpdUrl is None and stream_model.m3u8Url is None:
+                return JSONResponse(status_code=404, content={"success": False, "message": "Stream not found"})
+            if stream_model.mpdUrl is None and stream_model.m3u8Url is None:
                 stream_model.m3u8Url = f"/hls/{stream_key}/index.m3u8"
-                stream_model.live = False
-                db.commit()
-                db.close()
+            stream_model.live = False
+            db.commit()
     except Exception as exc:
         logger.error(f'Error stream disconnection exception: {exc}')
         response = {"status_code": 500, "content": {"success": False, "message": "Internal server error"}}
@@ -242,6 +250,8 @@ def restream(command: list, name: str):
     process = None
     try:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
+        # Enregistrer le process AVANT communicate() (bloquant), sinon
+        # /mtx/disconnect ne peut pas le terminer pendant le restream.
         restream_list[name] = process
         output, errors = process.communicate()
         if process.returncode != 0:
@@ -253,8 +263,8 @@ def restream(command: list, name: str):
     finally:
         if process and process.poll() is None:
             process.terminate()
-        if name in restream_list:
-            restream_list.pop(name)
+        if restream_list.get(name) is process:
+            restream_list.pop(name, None)
 
 
 if __name__ == "__main__":
