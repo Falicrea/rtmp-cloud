@@ -9,6 +9,7 @@ import re
 from typing import Union
 import hashlib
 import subprocess
+from datetime import datetime
 
 import uvicorn
 from fastapi import Depends, Request, FastAPI, HTTPException
@@ -136,7 +137,7 @@ async def mtx_onready(request: Request, item: StreamRequest):
                 os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
                 ffmpeg_command = [
                     'ffmpeg', '-i', f'srt://{SRT["host"]}:{SRT["port"]}?streamid=read:{stream_model.idStream}',
-                    '-vf', 'fps=1/30',  # Capture one frame every 30 seconds
+                    '-vf', 'fps=1/10',  # Capture one frame every 10 seconds
                     thumbnail_path
                 ]
                 # Schedule to run after 60 seconds
@@ -239,6 +240,7 @@ def disconnect_stream(session: sessionmaker[Session], stream_key: str):
             if stream_model.mpdUrl is None and stream_model.m3u8Url is None:
                 stream_model.m3u8Url = f"/hls/{stream_key}/index.m3u8"
             stream_model.live = False
+            stream_model.completedAt = datetime.now()
             db.commit()
     except Exception as exc:
         logger.error(f'Error stream disconnection exception: {exc}')
