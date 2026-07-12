@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 
 from package import Intranet
+from package.intranet import PrefixNotAuthorized
 from package.logger import logger
 from package.models import Stream
 from package.utils import WORK_DIR, SRT, CODECS
@@ -66,12 +67,19 @@ async def bind_session(name: str) -> sessionmaker[Session]:
     """
     if name is None or '_' not in name:
         raise HTTPException(status_code=400, detail="Name invalid")
-    match = re.match(r"(\w+)_", name)
+    # Le préfixe est la portion alphanumérique minuscule AVANT le premier `_`.
+    # Extraction stricte (pas de `\w+` greedy qui capturerait des underscores)
+    # pour que la résolution vers une base soit déterministe.
+    match = re.match(r"^([a-z0-9]+)_", name)
     if not match:
         raise HTTPException(status_code=400, detail="Name invalid")
     try :
         intranet = Intranet(match.group(1))
         return intranet.get_session()
+    except PrefixNotAuthorized as e:
+        # Refus générique : ne pas révéler quelles bases existent.
+        logger.warning(f"Unauthorized database prefix for name={name!r}: {e}")
+        raise HTTPException(status_code=400, detail="Name invalid")
     except ValueError as e:
         logger.error(f"Error: {e}")
         raise HTTPException(status_code=400, detail=e.__str__())

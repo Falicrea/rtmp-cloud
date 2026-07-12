@@ -5,10 +5,25 @@ database:
     username: postgres
     password: password
     default: 1
-    
+
   database2:
     host: localhost:5432
     name: db-prod
     username: postgres
     password: password
     default: 0
+
+# Table d'autorisation préfixe public -> clé de base interne (OPTIONNELLE).
+#
+# Le préfixe est la portion de l'idStream avant le premier `_`
+# (ex. `sp_ab12cd` -> préfixe `sp`) et apparaît publiquement dans les URLs HLS.
+# Cette table découple ce préfixe public du nom interne de la base :
+#   - seuls les préfixes listés ici sont acceptés ;
+#   - un préfixe deviné qui n'y figure pas est refusé (400 générique).
+#
+# Si cette section est ABSENTE, on retombe sur l'ancien comportement :
+# le préfixe doit correspondre directement à une clé de `database` ci-dessus
+# (mapping identité). Rétro-compatible.
+prefixes:
+  sp: database1
+  pr: database2

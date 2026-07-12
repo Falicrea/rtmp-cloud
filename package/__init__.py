@@ -1,1 +1,1 @@
-from .intranet import Intranet
+from .intranet import Intranet, PrefixNotAuthorized
