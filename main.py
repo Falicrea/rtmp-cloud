@@ -6,6 +6,7 @@ load_dotenv('.env')
 import os
 import json
 import re
+import hmac
 from typing import Union
 import hashlib
 import subprocess
@@ -26,7 +27,7 @@ from package import Intranet
 from package.intranet import PrefixNotAuthorized
 from package.logger import logger
 from package.models import Stream
-from package.utils import WORK_DIR, SRT, CODECS
+from package.utils import WORK_DIR, SRT, CODECS, MTX_INTERNAL_SECRET, validate_rtmp_url
 
 limiter = Limiter(key_func=get_remote_address)
 process_list = dict()
@@ -100,6 +101,24 @@ def stream_key_func(request: Request) -> str:
             pass
     return hashlib.sha256(key_source.encode()).hexdigest()
 
+def require_internal_auth(request: Request) -> None:
+    """
+    Protège les endpoints internes (/mtx/restream, /mtx/disconnect), appelés par
+    MediaMTX ou le backend applicatif, jamais par un client externe.
+
+    Exige un header `Authorization: Bearer <MTX_INTERNAL_SECRET>`. Fail-closed :
+    si le secret n'est pas configuré côté service, tout appel est refusé (503).
+    La comparaison est à temps constant (anti timing-attack).
+    """
+    if not MTX_INTERNAL_SECRET:
+        logger.error("MTX_INTERNAL_SECRET not configured; internal endpoint refused")
+        raise HTTPException(status_code=503, detail="Service not configured")
+
+    header = request.headers.get("Authorization", "")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(token, MTX_INTERNAL_SECRET):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 @app.get("/")
 async def index():
     return JSONResponse(status_code=200, content={"success": True})
@@ -164,7 +183,7 @@ async def mtx_onready(request: Request, item: StreamRequest):
             
     return JSONResponse(status_code=500, content="Unauthorized")
 
-@app.get("/mtx/disconnect")
+@app.post("/mtx/disconnect", dependencies=[Depends(require_internal_auth)])
 async def mtx_ondisconnect(request: Request):
     name = request.query_params.get('name')
     session = await bind_session(name)
@@ -179,15 +198,19 @@ async def mtx_ondisconnect(request: Request):
 
     return disconnect_stream(session=session, stream_key=name)
 
-@app.post("/mtx/restream")
-async def mtx_onrestream(request: RestreamRequest):
+@app.post("/mtx/restream", dependencies=[Depends(require_internal_auth)])
+@limiter.limit(limit_value="10/minute")
+async def mtx_onrestream(request: Request, item: RestreamRequest):
     """
     Restream a stream to social networks. with ffmpeg
     """
-    rtmp = request.rtmp
-    name = request.name
-    # validate if rtmp or rtmps is valid url
-    if not re.match(r"^rtmps?://[a-zA-Z0-9\-.]+\.[a-zA-Z]{2,}(:[0-9]+)?(/.*)?$", rtmp):
+    rtmp = item.rtmp
+    name = item.name
+    # Valide la destination RTMP contre l'allowlist (anti-SSRF) : empêche la
+    # redirection du flux vers un serveur RTMP arbitraire.
+    ok, reason = validate_rtmp_url(rtmp)
+    if not ok:
+        logger.warning(f"Restream RTMP rejected ({reason}): {rtmp!r}")
         raise HTTPException(status_code=400, detail="RTMP URL invalid")
 
     # Le suivi des processus se fait par nom de stream (cohérent avec

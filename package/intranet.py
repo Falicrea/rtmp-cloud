@@ -106,6 +106,22 @@ class Intranet:
         return databases
 
     @staticmethod
+    def available_prefixes() -> list[str]:
+        """
+        Liste des préfixes publics autorisés par la configuration.
+
+        - Clés de la table `prefixes` si elle est présente (mode table
+          d'autorisation explicite) ;
+        - sinon, clés de `database` (mode identité, rétro-compatible).
+        """
+        config = Intranet._retrieve_config()
+        prefixes = config.get('prefixes')
+        if prefixes:
+            return list(prefixes.keys())
+        databases = config.get('database') or {}
+        return list(databases.keys())
+
+    @staticmethod
     def resolve_prefix(prefix: str) -> str:
         """
         Résout un préfixe public (extrait de l'idStream) vers la clé de base

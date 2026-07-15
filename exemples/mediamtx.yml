@@ -26,4 +26,7 @@ srtAddress: :8890
 pathDefaults:
   runOnReady: bash -c 'mkdir -p "./hls/$MTX_PATH" && ffmpeg -i srt://localhost:8890?streamid=read:$MTX_PATH -c:v copy -preset veryfast -crf 23 -c:a aac -b:a 128k -f hls -hls_time 6 -hls_list_size 0 -hls_flags append_list ./hls/$MTX_PATH/index.m3u8'
   runOnReadyRestart: yes
-  runOnNotReady: curl "http://localhost:3030/mtx/disconnect?name=$MTX_PATH"
+  # /mtx/disconnect est un endpoint interne : méthode POST + secret partagé.
+  # $MTX_INTERNAL_SECRET doit être exporté dans l'environnement de MediaMTX
+  # (même valeur que MTX_INTERNAL_SECRET côté service rtmp-cloud).
+  runOnNotReady: curl -X POST -H "Authorization: Bearer $MTX_INTERNAL_SECRET" "http://localhost:3030/mtx/disconnect?name=$MTX_PATH"
